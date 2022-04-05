@@ -8,6 +8,7 @@ By far most changes relate to `atomic-server`, so if not specified, assume the c
 - **Warning**: Search index will have to be rebuilt. Start with `--rebuild-index`.
 - Updated various dependencies, and made `cargo.toml` less restrictive.
 - Remove `async-std` calls from `upload.rs`
+- Auto-update desktop distributions using Tauri #158
 
 ## [v0.31.1] - 2022-03-29
 
