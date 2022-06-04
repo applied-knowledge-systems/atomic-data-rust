@@ -7,9 +7,9 @@ use std::{
 };
 
 use tracing::{instrument, trace};
-extern crate crossbeam_channel as channel;
-use threadpool::ThreadPool;
+
 use crate::{
+    commit::CommitResponse,
     endpoints::{default_endpoints, Endpoint},
     errors::{AtomicError, AtomicResult},
     resources::PropVals,
@@ -25,6 +25,9 @@ use self::{
     },
 };
 
+// A function called by the Store when a Commit is accepted
+type HandleCommit = Box<dyn Fn(&CommitResponse) + Send + Sync>;
+
 mod migrations;
 mod query_index;
 #[cfg(test)]
@@ -37,14 +40,10 @@ pub type PropSubjectMap = HashMap<String, HashSet<String>>;
 /// The Db is a persistent on-disk Atomic Data store.
 /// It's an implementation of [Storelike].
 /// It uses [sled::Tree]s as Key Value stores.
-/// It builds a value index for performant [Query]s.
 /// It stores [Resource]s as [PropVals]s by their subject as key.
-///
-/// ## Resources
-///
-/// ## Value Index
-///
-/// The Value index stores
+/// It builds a value index for performant [Query]s.
+/// It keeps track of Queries and updates their index when [Commit]s are applied.
+/// You can pass a custom `on_commit` function to run at Commit time.
 #[derive(Clone)]
 pub struct Db {
     /// The Key-Value store that contains all data.
@@ -66,6 +65,8 @@ pub struct Db {
     server_url: String,
     /// Endpoints are checked whenever a resource is requested. They calculate (some properties of) the resource and return it.
     endpoints: Vec<Endpoint>,
+    /// Function called whenever a Commit is applied.
+    on_commit: Option<Arc<HandleCommit>>,
 }
 
 impl Db {
@@ -87,8 +88,9 @@ impl Db {
             server_url,
             watched_queries,
             endpoints: default_endpoints(),
+            on_commit: None,
         };
-        migrate_maybe(&store)?;
+        migrate_maybe(&store).map(|e| format!("Error during migration of database: {:?}", e))?;
         crate::populate::populate_base_models(&store)
             .map_err(|e| format!("Failed to populate base models. {}", e))?;
         Ok(store)
@@ -115,6 +117,12 @@ impl Db {
         let resource_bin = bincode::serialize(propvals)?;
         self.resources.insert(subject.as_bytes(), resource_bin)?;
         Ok(())
+    }
+
+    /// Sets a function that is called whenever a [Commit::apply] is called.
+    /// This can be used to listen to events.
+    pub fn set_handle_commit(&mut self, on_commit: HandleCommit) {
+        self.on_commit = Some(Arc::new(on_commit));
     }
 
     /// Finds resource by Subject, return PropVals HashMap
@@ -290,27 +298,32 @@ impl Storelike for Db {
         skip_dynamic: bool,
         for_agent: Option<&str>,
     ) -> AtomicResult<Resource> {
-        trace!("get_resource_extended: {}", subject);
+        let url_span = tracing::span!(tracing::Level::TRACE, "URL parse").entered();
         // This might add a trailing slash
-        let mut url = url::Url::parse(subject)?;
-        let clone = url.clone();
-        let query_params = clone.query_pairs();
-        url.set_query(None);
-        let mut removed_query_params = url.to_string();
+        let url = url::Url::parse(subject)?;
+
+        let mut removed_query_params = {
+            let mut url_altered = url.clone();
+            url_altered.set_query(None);
+            url_altered.to_string()
+        };
 
         // Remove trailing slash
         if removed_query_params.ends_with('/') {
             removed_query_params.pop();
         }
 
+        url_span.exit();
+
+        let endpoint_span = tracing::span!(tracing::Level::TRACE, "Endpoint").entered();
         // Check if the subject matches one of the endpoints
         for endpoint in self.endpoints.iter() {
             if url.path().starts_with(&endpoint.path) {
-                // Not all Endpoitns have a hanlde function.
+                // Not all Endpoints have a handle function.
                 // If there is none, return the endpoint plainly.
                 let mut resource = if let Some(handle) = endpoint.handle {
                     // Call the handle function for the endpoint, if it exists.
-                    (handle)(clone.clone(), self, for_agent).map_err(|e| {
+                    (handle)(url, self, for_agent).map_err(|e| {
                         format!("Error handling {} Endpoint: {}", endpoint.shortname, e)
                     })?
                 } else {
@@ -321,11 +334,10 @@ impl Storelike for Db {
                 return Ok(resource.to_owned());
             }
         }
+        endpoint_span.exit();
 
+        let dynamic_span = tracing::span!(tracing::Level::TRACE, "Dynamic").entered();
         let mut resource = self.get_resource(&removed_query_params)?;
-
-        // make sure the actual subject matches the one requested
-        resource.set_subject(subject.into());
 
         if let Some(agent) = for_agent {
             let _explanation = crate::hierarchy::check_read(self, &resource, agent)?;
@@ -339,34 +351,49 @@ impl Storelike for Db {
                 crate::urls::COLLECTION => {
                     has_dynamic = true;
                     if !skip_dynamic {
-                        return crate::collections::construct_collection_from_params(
+                        resource = crate::collections::construct_collection_from_params(
                             self,
-                            query_params,
+                            url.query_pairs(),
                             &mut resource,
                             for_agent,
-                        );
+                        )?;
                     }
                 }
                 crate::urls::INVITE => {
                     has_dynamic = true;
                     if !skip_dynamic {
-                        return crate::plugins::invite::construct_invite_redirect(
+                        resource = crate::plugins::invite::construct_invite_redirect(
                             self,
-                            query_params,
+                            url.query_pairs(),
                             &mut resource,
-                            subject,
-                        );
+                            for_agent,
+                        )?;
                     }
                 }
                 crate::urls::DRIVE => {
                     has_dynamic = true;
                     if !skip_dynamic {
-                        return crate::hierarchy::add_children(self, &mut resource);
+                        resource = crate::hierarchy::add_children(self, &mut resource)?;
+                    }
+                }
+                crate::urls::CHATROOM => {
+                    has_dynamic = true;
+                    if !skip_dynamic {
+                        resource = crate::plugins::chatroom::construct_chatroom(
+                            self,
+                            url.clone(),
+                            &mut resource,
+                            for_agent,
+                        )?;
                     }
                 }
                 _ => {}
             }
         }
+        dynamic_span.exit();
+
+        // make sure the actual subject matches the one requested - It should not be changed in the logic above
+        resource.set_subject(subject.into());
 
         // This lets clients know that the resource may have dynamic properties that are currently not included
         if has_dynamic && skip_dynamic {
@@ -377,6 +404,12 @@ impl Storelike for Db {
             )?;
         }
         Ok(resource)
+    }
+
+    fn handle_commit(&self, commit_response: &CommitResponse) {
+        if let Some(fun) = &self.on_commit {
+            fun(commit_response);
+        }
     }
 
     /// Search the Store, returns the matching subjects.
@@ -435,17 +468,17 @@ impl Storelike for Db {
             });
         }
 
-        // If there is a sort value, we need to change the items to contain that sorted value, instead of the one matched in the TPF query
-        if let Some(sort) = &q.sort_by {
+        // If there is a sort value, we need to change the atoms to contain that sorted value, instead of the one matched in the TPF query
+        if let Some(sort_prop) = &q.sort_by {
             // We don't use the existing array, we clear it.
             atoms = Vec::new();
             for r in &resources {
                 // Users _can_ sort by optional properties! So we need a fallback defauil
                 let fallback_default = crate::Value::String(END_CHAR.into());
-                let sorted_val = r.get(sort).unwrap_or(&fallback_default);
+                let sorted_val = r.get(sort_prop).unwrap_or(&fallback_default);
                 let atom = Atom {
                     subject: r.get_subject().to_string(),
-                    property: sort.to_string(),
+                    property: sort_prop.to_string(),
                     value: sorted_val.to_owned(),
                 };
                 atoms.push(atom)
@@ -461,7 +494,7 @@ impl Storelike for Db {
 
         // Add the atoms to the query_index
         for atom in atoms {
-            update_indexed_member(self, &q_filter, &atom, false)?;
+            update_indexed_member(self, &q_filter, &atom.subject, &atom.value, false)?;
         }
 
         // Retry the same query!
@@ -470,33 +503,21 @@ impl Storelike for Db {
 
     #[instrument(skip(self))]
     fn all_resources(&self, include_external: bool) -> ResourceCollection {
-        fn process_resource(item: Result<(sled::IVec, sled::IVec), sled::Error>) -> Resource {
-            let (subject, resource_bin) = item.expect(DB_CORRUPT_MSG);
-            let subject = String::from_utf8_lossy(&subject).to_string();
-            let propvals: PropVals = bincode::deserialize(&resource_bin)
-                .unwrap_or_else(|e| panic!("{}. {}", corrupt_db_message(&subject), e));
-            let resource = Resource::from_propvals(propvals, subject);
-            resource
-        }
+        let mut resources: ResourceCollection = Vec::new();
         let self_url = self
             .get_self_url()
             .expect("No self URL set, is required in DB");
-        let mut prefix: &[u8] = self_url.as_bytes();
-        if include_external {
-            prefix = "".as_bytes();
-        }
-        let njobs=num_cpus::get();
-        let pool = ThreadPool::new(njobs);
-        let resource_iter = self.resources.scan_prefix(prefix);
-        let (send, recv) = channel::bounded(0);
-        for item in resource_iter {
-            let (send, item)= (send.clone(),item.clone());
-            pool.execute(move || {
-                send.send(process_resource(item));
-                });
+        for item in self.resources.into_iter() {
+            let (subject, resource_bin) = item.expect(DB_CORRUPT_MSG);
+            let subject: String = String::from_utf8_lossy(&subject).to_string();
+            if !include_external && !subject.starts_with(&self_url) {
+                continue;
             }
-            drop(send);
-        let resources=recv.try_iter().collect::<Vec<Resource>>();
+            let propvals: PropVals = bincode::deserialize(&resource_bin)
+                .unwrap_or_else(|e| panic!("{}. {}", corrupt_db_message(&subject), e));
+            let resource = Resource::from_propvals(propvals, subject);
+            resources.push(resource);
+        }
         resources
     }
 
@@ -505,9 +526,11 @@ impl Storelike for Db {
         crate::populate::populate_default_store(self)
             .map_err(|e| format!("Failed to populate default store. {}", e))?;
         // This is a potentially expensive operation, but is needed to make TPF queries work with the models created in here
-        self.build_index(true)?;
+        self.build_index(true)
+            .map_err(|e| format!("Failed to build index. {}", e))?;
         crate::populate::create_drive(self)
-            .map_err(|e| format!("Failed to populate hierarcy. {}", e))?;
+            .map_err(|e| format!("Failed to create drive. {}", e))?;
+        crate::populate::set_drive_rights(self, true)?;
         crate::populate::populate_collections(self)
             .map_err(|e| format!("Failed to populate collections. {}", e))?;
         crate::populate::populate_endpoints(self)

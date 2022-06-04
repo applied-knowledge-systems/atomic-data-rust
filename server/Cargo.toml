@@ -6,7 +6,7 @@ edition = "2021"
 license = "MIT"
 name = "atomic-server"
 repository = "https://github.com/joepio/atomic-data-rust"
-version = "0.31.1"
+version = "0.32.0"
 [[bin]]
 name = "atomic-server"
 path = "src/bin.rs"
@@ -45,9 +45,21 @@ urlencoding = "2"
 optional = true
 version = "0.8"
 
+[dependencies.tracing-opentelemetry]
+optional = true
+version = "0.17"
+
+[dependencies.opentelemetry]
+optional = true
+version = "0.17"
+
+[dependencies.opentelemetry-jaeger]
+optional = true
+version = "0.16"
+
 [dependencies.sysinfo]
 optional = true
-sysinfo = "0.23"
+version = "0.23"
 
 [dependencies.actix-web]
 features = ["rustls"]
@@ -59,11 +71,11 @@ version = "4"
 [dependencies.atomic_lib]
 features = ["config", "db", "rdf"]
 path = "../lib"
-version = "0.31"
+version = "0.32.0"
 
 [dependencies.clap]
 features = ["derive", "env", "cargo"]
-version = "3"
+version = "3.1.18"
 
 [dependencies.rustls]
 optional = true
@@ -85,9 +97,10 @@ version = "0.3"
 actix-rt = "2"
 
 [features]
-default = ["https"]
+default = ["https", "telemetry"]
 https = ["acme-lib", "rustls"]
 process-management = ["sysinfo"]
+telemetry = ["tracing-opentelemetry", "opentelemetry", "opentelemetry-jaeger"]
 
 [lib]
 name = "atomic_server_lib"

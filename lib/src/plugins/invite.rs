@@ -8,8 +8,10 @@ pub fn construct_invite_redirect(
     store: &impl Storelike,
     query_params: url::form_urlencoded::Parse,
     invite_resource: &mut Resource,
-    subject: &str,
+    // Not used for invite redirects, invites are always public
+    for_agent: Option<&str>,
 ) -> AtomicResult<Resource> {
+    let requested_subject = invite_resource.get_subject().to_string();
     let mut pub_key = None;
     let mut invite_agent = None;
     for (k, v) in query_params {
@@ -26,7 +28,13 @@ pub fn construct_invite_redirect(
         (None, Some(agent_url)) => agent_url,
         (Some(public_key), None) => {
             let new_agent = Agent::new_from_public_key(store, &public_key)?;
-            new_agent.to_resource(store)?.save_locally(store)?;
+            // Create an agent if there is none
+            match store.get_resource(&public_key) {
+                Ok(_found) => {}
+                Err(_) => {
+                    new_agent.to_resource(store)?.save_locally(store)?;
+                }
+            };
 
             // Always add write rights to the agent itself
             // A bit inefficient, since it re-fetches the agent from the store, but it's not that big of a cost
@@ -63,7 +71,7 @@ pub fn construct_invite_redirect(
             return Err("No usages left for this invite".into());
         }
         // Since the requested subject might have query params, we don't want to overwrite that one - we want to overwrite the clean resource.
-        let mut url = url::Url::parse(subject)?;
+        let mut url = url::Url::parse(&requested_subject)?;
         url.set_query(None);
         invite_resource.set_subject(url.to_string());
         invite_resource.set_propval(urls::USAGES_LEFT.into(), Value::Integer(num - 1), store)?;
@@ -81,7 +89,8 @@ pub fn construct_invite_redirect(
     // Make sure the creator of the invite is still allowed to Write the target
     let invite_creator =
         crate::plugins::versioning::get_initial_commit_for_resource(target, store)?.signer;
-    crate::hierarchy::check_write(store, &store.get_resource(target)?, &invite_creator)?;
+    crate::hierarchy::check_write(store, &store.get_resource(target)?, &invite_creator)
+        .map_err(|e| format!("Invite creator is not allowed to write the target. {}", e))?;
 
     add_rights(&agent, target, write, store)?;
     if write {
@@ -102,7 +111,7 @@ pub fn construct_invite_redirect(
         store,
     )?;
     // The front-end requires the @id to be the same as requested
-    redirect.set_subject(subject.into());
+    redirect.set_subject(requested_subject);
     Ok(redirect)
 }
 
@@ -146,5 +155,19 @@ pub fn add_rights(
         .save_locally(store)
         .map_err(|e| format!("Unable to save updated target resource. {}", e))?;
 
+    Ok(())
+}
+
+/// Check if the creator has rights to invite people (= write) to the target resource
+pub fn before_apply_commit(
+    store: &impl Storelike,
+    commit: &crate::Commit,
+    resource_new: &Resource,
+) -> AtomicResult<()> {
+    let target = resource_new
+        .get(urls::TARGET)
+        .map_err(|_e| "Invite does not have required Target attribute")?;
+    let target_resource = store.get_resource(&target.to_string())?;
+    crate::hierarchy::check_write(store, &target_resource, &commit.signer)?;
     Ok(())
 }

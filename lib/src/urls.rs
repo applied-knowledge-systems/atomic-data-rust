@@ -13,6 +13,9 @@ pub const INVITE: &str = "https://atomicdata.dev/classes/Invite";
 pub const REDIRECT: &str = "https://atomicdata.dev/classes/Redirect";
 pub const ATOM: &str = "https://atomicdata.dev/classes/Atom";
 pub const FILE: &str = "https://atomicdata.dev/classes/File";
+pub const CHATROOM: &str = "https://atomicdata.dev/classes/ChatRoom";
+pub const PARAGRAPH: &str = "https://atomicdata.dev/classes/elements/Paragraph";
+pub const MESSAGE: &str = "https://atomicdata.dev/classes/Message";
 
 // Properties
 pub const SHORTNAME: &str = "https://atomicdata.dev/properties/shortname";
@@ -31,11 +34,14 @@ pub const RECOMMENDS: &str = "https://atomicdata.dev/properties/recommends";
 // ... for Commits
 pub const SUBJECT: &str = "https://atomicdata.dev/properties/subject";
 pub const SET: &str = "https://atomicdata.dev/properties/set";
+pub const PUSH: &str = "https://atomicdata.dev/properties/push";
 pub const REMOVE: &str = "https://atomicdata.dev/properties/remove";
 pub const DESTROY: &str = "https://atomicdata.dev/properties/destroy";
 pub const SIGNER: &str = "https://atomicdata.dev/properties/signer";
 pub const CREATED_AT: &str = "https://atomicdata.dev/properties/createdAt";
 pub const SIGNATURE: &str = "https://atomicdata.dev/properties/signature";
+pub const PREVIOUS_COMMIT: &str = "https://atomicdata.dev/properties/previousCommit";
+pub const LAST_COMMIT: &str = "https://atomicdata.dev/properties/lastCommit";
 // ... for Agents
 pub const PUBLIC_KEY: &str = "https://atomicdata.dev/properties/publicKey";
 pub const NAME: &str = "https://atomicdata.dev/properties/name";
@@ -67,6 +73,7 @@ pub const SEARCH_PROPERTY: &str = "https://atomicdata.dev/properties/search/prop
 pub const PARENT: &str = "https://atomicdata.dev/properties/parent";
 pub const READ: &str = "https://atomicdata.dev/properties/read";
 pub const WRITE: &str = "https://atomicdata.dev/properties/write";
+pub const APPEND: &str = "https://atomicdata.dev/properties/append";
 pub const CHILDREN: &str = "https://atomicdata.dev/properties/children";
 // ... for Inivtations
 pub const DESTINATION: &str = "https://atomicdata.dev/properties/destination";
@@ -90,8 +97,9 @@ pub const MIMETYPE: &str = "https://atomicdata.dev/properties/mimetype";
 pub const INTERNAL_ID: &str = "https://atomicdata.dev/properties/internalId";
 pub const DOWNLOAD_URL: &str = "https://atomicdata.dev/properties/downloadURL";
 pub const ATTACHMENTS: &str = "https://atomicdata.dev/properties/attachments";
-// ... for Documents and Elements
-pub const PARAGRAPH: &str = "https://atomicdata.dev/classes/elements/Paragraph";
+// ... for ChatRooms and Messages
+pub const MESSAGES: &str = "https://atomicdata.dev/properties/messages";
+pub const NEXT_PAGE: &str = "https://atomicdata.dev/properties/nextPage";
 
 // Datatypes
 pub const STRING: &str = "https://atomicdata.dev/datatypes/string";

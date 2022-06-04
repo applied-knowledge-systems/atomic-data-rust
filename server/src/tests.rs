@@ -1,6 +1,6 @@
 //! This contains a minimal set of tests for the server.
 //! Most of the more rigorous testing is done in the end-to-end tests:
-//! https://github.com/joepio/atomic-data-browser/tree/main/data-browser/tests
+//! https://github.com/atomicdata-dev/atomic-data-browser/tree/main/data-browser/tests
 
 use crate::{appstate::AppState, config::Opts};
 
@@ -38,12 +38,15 @@ async fn server_tests() {
         "atomic-server",
         "--initialize",
         "--data-dir",
-        &format!("./.temp/{}", unique_string),
+        &format!("./.temp/{}/db", unique_string),
     ]);
 
-    let config = config::build_config(opts)
+    let mut config = config::build_config(opts)
         .map_err(|e| format!("Initialization failed: {}", e))
         .expect("failed init config");
+    // This prevents folder access issues when running concurrent tests
+    config.search_index_path = format!("./.temp/{}/search_index", unique_string).into();
+
     let appstate = crate::appstate::init(config.clone()).expect("failed init appstate");
     let data = Data::new(appstate.clone());
     let app = test::init_service(

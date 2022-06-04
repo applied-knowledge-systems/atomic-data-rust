@@ -18,6 +18,8 @@ If you want to share some thoughts on the Atomic Data _specification_, please [d
 - [Debugging](#debugging)
 - [Performance monitoring / benchmarks](#performance-monitoring--benchmarks)
   - [Tracing](#tracing)
+    - [Tracing with OpenTelemetry](#tracing-with-opentelemetry)
+    - [Tracing with Chrome](#tracing-with-chrome)
   - [Criterion benchmarks](#criterion-benchmarks)
   - [Drill](#drill)
 - [Releases, Versioning and Tagging](#releases-versioning-and-tagging)
@@ -35,7 +37,7 @@ Clone the repo and run `cargo run` from each folder (e.g. `cli` or `server`).
 
 Since `atomic-server` is developed in conjunction with the typescript / react `atomic-data-browser` project, it might make sense to run both locally whilst developing.
 
-- Clone [`atomic-data-browser`](https://github.com/joepio/atomic-data-browser) and run it (see readme.md, basically: `yarn start`)
+- Clone [`atomic-data-browser`](https://github.com/atomicdata-dev/atomic-data-browser) and run it (see readme.md, basically: `yarn start`)
 - Visit `https://localhost:8080` (default)
 - Visit your `localhost` in your locally running `atomic-data-browser` instance: (e.g. `http://localhost:8080/app/show?subject=http%3A%2F%2Flocalhost`)
 
@@ -52,7 +54,8 @@ The `/.vscode` directory contains various tasks, recommended extensions, and som
 ```sh
 # Make sure nextest is installed
 cargo install nextest
-# This also makes sure that cli and server work, plus it test the db feature
+# Runs all tests
+# NOTE: run this from the root of the workspace, or else feature flags may be excluded
 cargo nextest run
 # Run specific test(s)
 cargo nextest run test_name_substring
@@ -87,22 +90,29 @@ For doing this, we have at least three tools: tracing, criterion and drill.
 
 ### Tracing
 
+There are two ways you can use `tracing` to get insights into performance.
+
+#### Tracing with OpenTelemetry
+
+- Run an OpenTelemetry compatible service, such as [Jaeger](https://www.jaegertracing.io/docs/1.34/getting-started/).
+- Run the server with `--trace opentelemetry`
+
+#### Tracing with Chrome
+
 - Use the `tracing::instrument` macro to make functions traceable. Check out the [tracing](https://docs.rs/tracing/latest/tracing/) docs for more info.
-- Run the server with the `--trace-chrome` flag.
+- Run the server with the `--trace chrome` flag.
 - Close the server. A `trace-{unix-timestamp}.json` file will be generated in the current directory.
 - Open this file with https://ui.perfetto.dev/ or `chrome://tracing`. This will show you a flamegraph that you can zoom into.
-
-```sh
-atomic-server --trace-chrome
-```
 
 ### Criterion benchmarks
 
 We have benchmarks in the `/lib/benchmarks` folder. Make sure there's a benchmark for the thing you're trying to optimize, run the benchmark, then make some changes to the code, then run the benchmark again. You should be able to see the difference in performance.
 
 ```sh
-# install
+# install criterion
 cargo install cargo-criterion
+# go to atomic-data-rust root folder - don't run benchmarks in `./lib`
+cd ..
 # run benchmark
 cargo criterion
 # or if that does not work
@@ -134,10 +144,10 @@ drill -b benchmark.yml --stats
 
 Before tagging a new version, make sure to update the `app_assets` folder:
 
-1. get [atomic-data-browser](https://github.com/joepio/atomic-data-browser) locally
-2. run `yarn build`
-3. copy the contents of `publish` to `app_assets`
-4. search and replace `./workbox` with `./app_assets/workbox` in `sw.js`, because we'll host `sw.js` from root.
+1. clone [atomic-data-browser](https://github.com/atomicdata-dev/atomic-data-browser) in the folder above this one
+2. run `yarn build-server` in `atomic-data-browser`, which should
+3. Make sure not to commit all the files, manually check them
+4. search and replace `.workbox` with `./app_assets/workbox` in `sw.js`, because we'll host `sw.js` from root.
 
 ## Publishing manually - doing the CI's work
 

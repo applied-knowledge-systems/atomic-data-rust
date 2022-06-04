@@ -1,8 +1,9 @@
 //! A resource is a set of Atoms that share a URL
 
 use crate::commit::{CommitOpts, CommitResponse};
+use crate::urls;
 use crate::utils::random_string;
-use crate::values::Value;
+use crate::values::{SubResource, Value};
 use crate::{commit::CommitBuilder, errors::AtomicResult};
 use crate::{
     mapping::is_url,
@@ -28,38 +29,6 @@ pub struct Resource {
 pub type PropVals = HashMap<String, Value>;
 
 impl Resource {
-    /// Adds a subject to some property vector / array.
-    /// Creates the vector if it does not exist.
-    pub fn append_subjects(
-        &mut self,
-        property: &str,
-        values: Vec<String>,
-        must_be_unique: bool,
-        store: &impl Storelike,
-    ) -> AtomicResult<()> {
-        // Does this property exist?
-        match self.get(property) {
-            Ok(existing) => {
-                let mut subjects = existing.to_subjects(None)?;
-                // Does it contain any of the passed values?
-                // Add them when it doesn't.
-                for value in values {
-                    if subjects.contains(&value) {
-                        if must_be_unique {
-                            subjects.push(value);
-                        }
-                        continue;
-                    } else {
-                        subjects.push(value);
-                        continue;
-                    }
-                }
-                self.set_propval(property.into(), subjects.into(), store)
-            }
-            Err(_no_val) => self.set_propval(property.into(), values.into(), store),
-        }
-    }
-
     /// Fetches all 'required' properties. Returns an error if any are missing in this Resource.
     pub fn check_required_props(&self, store: &impl Storelike) -> AtomicResult<()> {
         let classvec = self.get_classes(store)?;
@@ -83,6 +52,7 @@ impl Resource {
     ) -> AtomicResult<crate::commit::CommitResponse> {
         self.commit.destroy(true);
         self.save(store)
+            .map_err(|e| format!("Failed to destroy {} : {}", self.subject, e).into())
     }
 
     pub fn from_propvals(propvals: PropVals, subject: String) -> Resource {
@@ -123,6 +93,36 @@ impl Resource {
             Ok(val.to_subjects(None)?[0].clone())
         } else {
             Err(format!("Resource {} has no class", self.subject).into())
+        }
+    }
+
+    /// Returns the `Parent` of this Resource.
+    /// Throws in case of recursion
+    pub fn get_parent(&self, store: &impl Storelike) -> AtomicResult<Resource> {
+        match self.get(urls::PARENT) {
+            Ok(parent_val) => {
+                match store.get_resource(&parent_val.to_string()) {
+                    Ok(parent) => {
+                        if self.get_subject() == parent.get_subject() {
+                            return Err(format!(
+                                "There is a circular relationship in {} (parent = same resource).",
+                                self.get_subject()
+                            )
+                            .into());
+                        }
+                        // Check write right
+                        Ok(parent)
+                    }
+                    Err(_err) => Err(format!(
+                        "Parent of {} ({}) not found: {}",
+                        self.get_subject(),
+                        parent_val,
+                        _err
+                    )
+                    .into()),
+                }
+            }
+            Err(e) => Err(format!("Parent of {} not found: {}", self.get_subject(), e).into()),
         }
     }
 
@@ -185,6 +185,40 @@ impl Resource {
         let class_urls = Vec::from([String::from(class_url)]);
         resource.set_propval(crate::urls::IS_A.into(), class_urls.into(), store)?;
         Ok(resource)
+    }
+
+    /// Appends a Resource to a specific property through the commitbuilder.
+    /// Useful if you want to have compact Commits that add things to existing ResourceArrays.
+    pub fn push_propval(
+        &mut self,
+        property: &str,
+        value: SubResource,
+        skip_existing: bool,
+        // TODO: Use Store to validate datatype
+        _store: &impl Storelike,
+    ) -> AtomicResult<()> {
+        let mut vec = match self.propvals.get(property) {
+            Some(some) => match some {
+                Value::ResourceArray(vec) => {
+                    if skip_existing {
+                        let str_val = value.to_string();
+                        for i in vec {
+                            if i.to_string() == str_val {
+                                // Value already exists
+                                return Ok(());
+                            }
+                        }
+                    }
+                    vec.to_owned()
+                }
+                _other => return Err("Wrong datatype, expected ResourceArray".into()),
+            },
+            None => Vec::new(),
+        };
+        vec.push(value.clone());
+        self.propvals.insert(property.into(), vec.into());
+        self.commit.push_propval(property, value)?;
+        Ok(())
     }
 
     /// Remove a propval from a resource by property URL.
@@ -253,26 +287,35 @@ impl Resource {
     /// Saves the resource (with all the changes) to the store by creating a Commit.
     /// Uses default Agent to sign the Commit.
     /// Stores changes on the Subject's Server by sending a Commit.
-    /// Returns the generated Commit.
+    /// Returns the generated Commit, the new Resource and the old Resource.
     pub fn save(&mut self, store: &impl Storelike) -> AtomicResult<crate::commit::CommitResponse> {
         let agent = store.get_default_agent()?;
-        let commitbuilder = self.get_commit_builder().clone();
-        let commit = commitbuilder.sign(&agent, store)?;
-        let should_post = store.get_self_url().is_none();
+        let commit_builder = self.get_commit_builder().clone();
+        let commit = commit_builder.sign(&agent, store, self)?;
+        // If the current client is a server, and the subject is hosted here, don't post
+        let should_post = if let Some(self_url) = store.get_self_url() {
+            !self.subject.starts_with(&self_url)
+        } else {
+            // Current client is not a server, has no own persisted store
+            true
+        };
         if should_post {
-            // First, post it to the store where the data must reside
             crate::client::post_commit(&commit, store)?;
         }
-        // If that succeeds, save it locally;
         let opts = CommitOpts {
             validate_schema: true,
             validate_signature: false,
             validate_timestamp: false,
             validate_rights: false,
+            // TODO: auto-merge should work before we enable this https://github.com/atomicdata-dev/atomic-data-rust/issues/412
+            validate_previous_commit: false,
             update_index: true,
         };
         let commit_response = commit.apply_opts(store, &opts)?;
-        // then, reset the internal CommitBuiler.
+        if let Some(new) = &commit_response.resource_new {
+            self.subject = new.subject.clone();
+            self.propvals = new.propvals.clone();
+        }
         self.reset_commit_builder();
         Ok(commit_response)
     }
@@ -285,17 +328,33 @@ impl Resource {
     pub fn save_locally(&mut self, store: &impl Storelike) -> AtomicResult<CommitResponse> {
         let agent = store.get_default_agent()?;
         let commitbuilder = self.get_commit_builder().clone();
-        let commit = commitbuilder.sign(&agent, store)?;
+        let commit = commitbuilder.sign(&agent, store, self)?;
         let opts = CommitOpts {
             validate_schema: true,
             validate_signature: false,
             validate_timestamp: false,
             validate_rights: false,
+            // https://github.com/atomicdata-dev/atomic-data-rust/issues/412
+            validate_previous_commit: false,
             update_index: true,
         };
-        let res = commit.apply_opts(store, &opts)?;
+        let commit_response = commit.apply_opts(store, &opts)?;
+        if let Some(new) = &commit_response.resource_new {
+            self.subject = new.subject.clone();
+            self.propvals = new.propvals.clone();
+        }
         self.reset_commit_builder();
-        Ok(res)
+        Ok(commit_response)
+    }
+
+    /// Overwrites the is_a (Class) of the Resource.
+    pub fn set_class(&mut self, is_a: &str, store: &impl Storelike) -> AtomicResult<()> {
+        self.set_propval(
+            crate::urls::IS_A.into(),
+            Value::ResourceArray([is_a.into()].into()),
+            store,
+        )?;
+        Ok(())
     }
 
     /// Insert a Property/Value combination.
@@ -526,10 +585,7 @@ mod test {
         );
         println!(
             "{}",
-            resource_from_store
-                .get_shortname("is-a", &store)
-                .unwrap()
-                .to_string()
+            resource_from_store.get_shortname("is-a", &store).unwrap()
         );
         assert_eq!(
             resource_from_store
@@ -565,7 +621,7 @@ mod test {
         let commit = new_resource
             .get_commit_builder()
             .clone()
-            .sign(&agent, &store)
+            .sign(&agent, &store, &new_resource)
             .unwrap();
         commit
             .apply_opts(
@@ -575,6 +631,7 @@ mod test {
                     validate_signature: true,
                     validate_timestamp: true,
                     validate_rights: false,
+                    validate_previous_commit: true,
                     update_index: true,
                 },
             )
@@ -645,5 +702,33 @@ mod test {
 
         let found_prop = found_resource.get(&property).unwrap().clone();
         assert_eq!(found_prop.to_string(), value.to_string());
+    }
+
+    #[test]
+    fn push_propval() {
+        let store = init_store();
+        let property: String = urls::CHILDREN.into();
+        let append_value = "http://localhost/someURL";
+        let mut resource = Resource::new_generate_subject(&store);
+        resource
+            .push_propval(&property, append_value.into(), false, &store)
+            .unwrap();
+        let vec = resource.get(&property).unwrap().to_subjects(None).unwrap();
+        assert_eq!(
+            append_value,
+            vec.first().unwrap(),
+            "The first element should be the appended value"
+        );
+        let resp = resource.save_locally(&store).unwrap();
+        assert!(resp.commit_struct.push.is_some());
+
+        let new_val = resp
+            .resource_new
+            .unwrap()
+            .get(&property)
+            .unwrap()
+            .to_subjects(None)
+            .unwrap();
+        assert_eq!(new_val.first().unwrap(), append_value);
     }
 }

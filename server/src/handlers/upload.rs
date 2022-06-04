@@ -55,17 +55,18 @@ pub async fn upload_handler(
         let content_type = field.content_disposition().clone();
         let filename = content_type.get_filename().ok_or("Filename is missing")?;
 
-        let filesdir = format!("{}/uploads", appstate.config.config_dir.to_str().unwrap());
-        std::fs::create_dir_all(&filesdir)?;
+        std::fs::create_dir_all(&appstate.config.uploads_path)?;
 
         let file_id = format!(
             "{}-{}",
             now(),
             sanitize_filename::sanitize(&filename)
                 // Spacebars lead to very annoying bugs in browsers
-                .replace(" ", "-")
+                .replace(' ', "-")
         );
-        let file_path = format!("{}/{}", filesdir, file_id);
+
+        let mut file_path = appstate.config.uploads_path.clone();
+        file_path.push(&file_id);
         let mut file = std::fs::File::create(file_path)?;
 
         // Field in turn is stream of *Bytes* object
@@ -108,18 +109,11 @@ pub async fn upload_handler(
 
     // Add the files as `attachments` to the parent
     let mut parent = store.get_resource(&query.parent)?;
-    parent.append_subjects(urls::ATTACHMENTS, created_file_subjects, false, store)?;
-    commit_responses.push(parent.save(store)?);
-
-    for resp in commit_responses {
-        // When a commit is applied, notify all webhook subscribers
-        // TODO: add commit handler https://github.com/joepio/atomic-data-rust/issues/253
-        appstate
-            .commit_monitor
-            .do_send(crate::actor_messages::CommitMessage {
-                commit_response: resp,
-            });
+    // parent.append_subjects(urls::ATTACHMENTS, created_file_subjects, false, store)?;
+    for created in created_file_subjects {
+        parent.push_propval(urls::ATTACHMENTS, created.into(), false, store)?;
     }
+    commit_responses.push(parent.save(store)?);
 
     let mut builder = HttpResponse::Ok();
 

@@ -78,7 +78,7 @@ pub async fn search_query(
                 ],
             );
             let full_query = if let Some(prop) = &params.property {
-                format!("{}:{}", prop, &q)
+                format!("property:{:?} AND {}", prop, &q)
             } else {
                 q
             };
@@ -214,7 +214,6 @@ pub async fn search_index_rdf(
                 get_inner_value(t.object),
             ) {
                 (Some(s), Some(p), Some(o)) => {
-                    println!("adding {} {} {}", s, p, o);
                     crate::search::add_triple(&writer, s, p, o, &fields).ok();
                 }
                 _ => return Ok(()),

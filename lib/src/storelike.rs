@@ -2,6 +2,7 @@
 
 use crate::{
     agents::Agent,
+    commit::CommitResponse,
     errors::AtomicError,
     hierarchy,
     schema::{Class, Property},
@@ -21,7 +22,7 @@ pub type ResourceCollection = Vec<Resource>;
 /// Storelike provides many useful methods for interacting with an Atomic Store.
 /// It serves as a basic store Trait, agnostic of how it functions under the hood.
 /// This is useful, because we can create methods for Storelike that will work with either in-memory
-/// stores, as well as with persistend on-disk stores.
+/// stores, as well as with persistent on-disk stores.
 pub trait Storelike: Sized {
     /// Adds Atoms to the store.
     /// Will replace existing Atoms that share Subject / Property combination.
@@ -138,6 +139,14 @@ pub trait Storelike: Sized {
     /// If you're not sure what to use, use `get_resource_extended`.
     fn get_resource(&self, subject: &str) -> AtomicResult<Resource>;
 
+    /// Returns an existing resource, or creates a new one with the given Subject
+    fn get_resource_new(&self, subject: &str) -> Resource {
+        match self.get_resource(subject) {
+            Ok(r) => r,
+            Err(_) => Resource::new(subject.into()),
+        }
+    }
+
     /// Retrieves a Class from the store by subject URL and converts it into a Class useful for forms
     fn get_class(&self, subject: &str) -> AtomicResult<Class> {
         let resource = self
@@ -181,6 +190,10 @@ pub trait Storelike: Sized {
         }
         Ok(resource)
     }
+
+    /// This function is called whenever a Commit is applied.
+    /// Implement this if you want to have custom handlers for Commits.
+    fn handle_commit(&self, _commit_response: &CommitResponse) {}
 
     fn handle_not_found(&self, subject: &str, error: AtomicError) -> AtomicResult<Resource> {
         if let Some(self_url) = self.get_self_url() {

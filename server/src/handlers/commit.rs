@@ -20,24 +20,18 @@ pub async fn post_commit(
     ) {
         return Err("Subject of commit should be sent to other domain - this store can not own this resource.".into());
     }
-    // We don't update the index, because that's a job for the CommitMonitor. That means it can be done async in a different thread, making this commit response way faster.
     let opts = CommitOpts {
         validate_schema: true,
         validate_signature: true,
         validate_timestamp: true,
         validate_rights: true,
-        update_index: false,
+        // https://github.com/atomicdata-dev/atomic-data-rust/issues/412
+        validate_previous_commit: false,
+        update_index: true,
     };
     let commit_response = incoming_commit.apply_opts(store, &opts)?;
 
     let message = commit_response.commit_resource.to_json_ad()?;
 
-    // When a commit is applied, notify all webhook subscribers
-    // TODO: add commit handler https://github.com/joepio/atomic-data-rust/issues/253
-    appstate
-        .commit_monitor
-        .do_send(crate::actor_messages::CommitMessage { commit_response });
-
-    tracing::info!("{}", &message);
     Ok(builder.body(message))
 }

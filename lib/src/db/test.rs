@@ -57,7 +57,7 @@ fn basic() {
 
 #[test]
 fn populate_collections() {
-    let store = DB.lock().unwrap().clone();
+    let store = Db::init_temp("populate_collections").unwrap();
     let subjects: Vec<String> = store
         .all_resources(false)
         .into_iter()
@@ -80,12 +80,14 @@ fn populate_collections() {
         .to_bool()
         .unwrap();
     assert!(nested);
+    // Make sure it can be run multiple times
+    store.populate().unwrap();
 }
 
 #[test]
 /// Check if the cache is working
 fn add_atom_to_index() {
-    let store = DB.lock().unwrap().clone();
+    let store = Db::init_temp("add_atom_to_index").unwrap();
     let subject = urls::CLASS.into();
     let property: String = urls::PARENT.into();
     let value = Value::AtomicUrl(urls::AGENT.into());
@@ -175,7 +177,7 @@ fn destroy_resource_and_check_collection_and_commits() {
         "The commits collection did not increase after saving the resource."
     );
 
-    resource.destroy(&store).unwrap();
+    _res.resource_new.unwrap().destroy(&store).unwrap();
     let agents_collection_3 = store
         .get_resource_extended(&agents_url, false, None)
         .unwrap();
@@ -207,7 +209,7 @@ fn destroy_resource_and_check_collection_and_commits() {
 
 #[test]
 fn get_extended_resource_pagination() {
-    let store = DB.lock().unwrap().clone();
+    let store = Db::init_temp("get_extended_resource_pagination").unwrap();
     let subject = format!("{}/commits?current_page=2", store.get_server_url());
     // Should throw, because page 2 is out of bounds for default page size
     let _wrong_resource = store
@@ -245,6 +247,7 @@ fn queries() {
         "following tests might not make sense if count is less than limit"
     );
 
+    let prop_filter = urls::DESTINATION;
     let sort_by = urls::DESCRIPTION;
 
     for _x in 0..count {
@@ -272,8 +275,8 @@ fn queries() {
     }
 
     let mut q = Query {
-        property: Some(urls::DESTINATION.into()),
-        value: Some(demo_reference),
+        property: Some(prop_filter.into()),
+        value: Some(demo_reference.clone()),
         limit: Some(limit),
         start_val: None,
         end_val: None,
@@ -324,8 +327,8 @@ fn queries() {
         if i == 4 {
             r.set_propval(sort_by.into(), Value::Markdown("!first".into()), store)
                 .unwrap();
-            r.save(store).unwrap();
-            resource_changed_order_opt = Some(r.clone());
+            let resp = r.save(store).unwrap();
+            resource_changed_order_opt = resp.resource_new.clone();
         }
         prev_resource = r.clone();
     }
@@ -346,7 +349,7 @@ fn queries() {
     let res = store.query(&q).unwrap();
     assert!(
         res.resources[0].get_subject() != resource_changed_order.get_subject(),
-        "deleted resoruce still in results"
+        "deleted resource still in results"
     );
 
     q.sort_desc = true;
@@ -362,12 +365,35 @@ fn queries() {
     // TODO: Ideally, the count is authorized too. But doing that could be hard. (or expensive)
     // https://github.com/joepio/atomic-data-rust/issues/286
     // assert_eq!(res.count, 1, "authorized count");
+
+    println!("Filter by value, property and also Sort");
+    q.property = Some(prop_filter.into());
+    q.value = Some(demo_reference);
+    q.sort_by = Some(sort_by.into());
+    q.for_agent = None;
+    let res = store.query(&q).unwrap();
+    println!("res {:?}", res.subjects);
+    let first = res.resources[0].get(sort_by).unwrap().to_string();
+    let later = res.resources[limit - 1].get(sort_by).unwrap().to_string();
+    assert!(first > later, "sort by desc");
+
+    println!("Set a start value");
+    let middle_val = res.resources[limit / 2].get(sort_by).unwrap().to_string();
+    q.start_val = Some(Value::String(middle_val.clone()));
+    let res = store.query(&q).unwrap();
+    println!("res {:?}", res.subjects);
+
+    let first = res.resources[0].get(sort_by).unwrap().to_string();
+    assert!(
+        first > middle_val,
+        "start value not respected, found value larger than middle value of earlier query"
+    );
 }
 
 /// Check if `include_external` is respected.
 #[test]
 fn query_include_external() {
-    let store = &DB.lock().unwrap().clone();
+    let store = &Db::init_temp("query_include_external").unwrap();
 
     let mut q = Query {
         property: None,
@@ -397,6 +423,17 @@ fn query_include_external() {
 #[test]
 fn test_db_resources_all() {
     let store = &DB.lock().unwrap().clone();
+    let res_no_include = store.all_resources(false).len();
+    let res_include = store.all_resources(true).len();
+    assert!(
+        res_include > res_no_include,
+        "Amount of results should be higher for include_external"
+    );
+}
+
+#[test]
+fn test_db_resources_all() {
+    let store = &Db::init_temp("resources_all").unwrap();
     let res_no_include = store.all_resources(false).len();
     let res_include = store.all_resources(true).len();
     assert!(

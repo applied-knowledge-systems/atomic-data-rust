@@ -3,10 +3,17 @@
 List of changes for this repo, including `atomic-cli`, `atomic-server` and `atomic-lib`.
 By far most changes relate to `atomic-server`, so if not specified, assume the changes are relevant only for the server.
 
-## UNRELEASED
+## [v0.31.1] - 2022-06-xx
+
+- Fix issue when creating invite for chatroom #413
+- Add OpenTelemetry suport #416
+- Fix `remove` Commit command #417 (thanks @rasendubi!)
+
+## [v0.32.0] - 2022-05-22
 
 - **Warning**: Various default directories have moved (see #331). Most notably the `data` directory. The location depends on your OS. Run `show-config` to see where it will be stored now. If you have data in `~/.config/atomic/db`, move it to this new directory. Also, the search index will have to be rebuilt. Start with `--rebuild-index`.
 - Updated various dependencies, and made `cargo.toml` less restrictive.
+- Handle `previousCommit`. This means that Commits should contain a reference to the latest Commit.
 - Remove `async-std` calls from `upload.rs`
 - Added `reset` and `show-config` commands to `atomic-server`.
 - Added `data-dir` flag
@@ -15,6 +22,14 @@ By far most changes relate to `atomic-server`, so if not specified, assume the c
 - Make process management optional #324 #334
 - Auto-update desktop distributions using Tauri #158
 - Internal migration logic for inter-version compatibility of the database. Makes upgrading trivial. #102
+- Use commits in populate and init
+- Fix bug when opening the same invite twice with the same agent
+- Update atomic-data-browser, deal with new commits, add chatrooms
+- Add `Store::set_handle_commit`. Changes how Commits are internally processed. Now, users of `atomic_lib` can pass a custom handler function. This can be used to listen to events. #380 #253
+- Added ChatRoom functionality. #373
+- Add `push` option to Commits, which allows for efficient manipulation of ResourceArrays. Remove `Resource::append_subjects` method in favor of `push_propvals` #289.
+- Add `append` right, only allows creating children #381.
+- Fix logic for updating indexes. Sometimes atoms were ignored. #392 #395
 
 ## [v0.31.1] - 2022-03-29
 
@@ -288,7 +303,7 @@ Warning: existing databases will _not_ work with this version.
 
 Warning: existing Agents and Commits will no longer work. Be sure to create new ones.
 
-- Change Commit serialization to [match atomic-data-browser](https://github.com/joepio/atomic-data-browser/issues/3) implementation #98.
+- Change Commit serialization to [match atomic-data-browser](https://github.com/atomicdata-dev/atomic-data-browser/issues/3) implementation #98.
 
 ## [v0.21.1]
 

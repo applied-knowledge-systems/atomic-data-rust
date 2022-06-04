@@ -31,7 +31,7 @@ pub enum Value {
 /// A resource in a JSON-AD body can be any of these
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum SubResource {
-    Resource(Resource),
+    Resource(Box<Resource>),
     // I was considering using Resources for these, but that would involve
     // storing the paths in both the NestedResource as well as its parent
     // context, which could produce inconsistencies.
@@ -274,6 +274,22 @@ impl From<Vec<String>> for Value {
     }
 }
 
+impl From<Vec<SubResource>> for Value {
+    fn from(val: Vec<SubResource>) -> Self {
+        Value::ResourceArray(val)
+    }
+}
+
+impl From<SubResource> for Value {
+    fn from(val: SubResource) -> Self {
+        match val {
+            SubResource::Resource(r) => r.into(),
+            SubResource::Nested(n) => n.into(),
+            SubResource::Subject(s) => s.into(),
+        }
+    }
+}
+
 impl From<PropVals> for Value {
     fn from(val: PropVals) -> Self {
         Value::NestedResource(SubResource::Nested(val))
@@ -298,11 +314,17 @@ impl From<Resource> for Value {
     }
 }
 
+impl From<Box<Resource>> for Value {
+    fn from(val: Box<Resource>) -> Self {
+        Value::Resource((*val).into())
+    }
+}
+
 impl From<Vec<Resource>> for Value {
     fn from(val: Vec<Resource>) -> Self {
         let mut vec = Vec::new();
         for i in val {
-            vec.push(SubResource::Resource(i));
+            vec.push(SubResource::Resource(Box::new(i)));
         }
         Value::ResourceArray(vec)
     }
@@ -387,7 +409,7 @@ impl From<PropVals> for SubResource {
 
 impl From<Resource> for SubResource {
     fn from(val: Resource) -> Self {
-        SubResource::Resource(val)
+        SubResource::Resource(Box::new(val))
     }
 }
 

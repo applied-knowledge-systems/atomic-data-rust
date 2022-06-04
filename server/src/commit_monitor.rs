@@ -100,19 +100,6 @@ impl CommitMonitor {
             tracing::debug!("No subscribers for {}", target);
         }
 
-        // Update the value index
-        msg.commit_response.commit_struct.apply_changes(
-            msg.commit_response.resource_old.clone(),
-            &self.store,
-            true,
-        )?;
-
-        // Add commit itself to the value index
-        for atom in msg.commit_response.commit_resource.to_atoms()? {
-            self.store
-                .add_atom_to_index(&atom, &msg.commit_response.commit_resource)?;
-        }
-
         // Update the search index
         if let Some(resource) = &msg.commit_response.resource_new {
             if self.config.opts.remove_previous_search {
