@@ -8,6 +8,13 @@ use std::{
 
 use tracing::{instrument, trace};
 
+use self::{
+    migrations::migrate_maybe,
+    query_index::{
+        atom_to_indexable_atoms, check_if_atom_matches_watched_query_filters, query_indexed,
+        update_indexed_member, watch_collection, IndexAtom, QueryFilter, END_CHAR,
+    },
+};
 use crate::{
     commit::CommitResponse,
     endpoints::{default_endpoints, Endpoint},
@@ -16,14 +23,8 @@ use crate::{
     storelike::{Query, QueryResult, ResourceCollection, Storelike},
     Atom, Resource, Value,
 };
-
-use self::{
-    migrations::migrate_maybe,
-    query_index::{
-        atom_to_indexable_atoms, check_if_atom_matches_watched_query_filters, query_indexed,
-        update_indexed_member, watch_collection, IndexAtom, QueryFilter, END_CHAR,
-    },
-};
+extern crate crossbeam_channel as channel;
+use threadpool::ThreadPool;
 
 // A function called by the Store when a Commit is accepted
 type HandleCommit = Box<dyn Fn(&CommitResponse) + Send + Sync>;
@@ -503,21 +504,33 @@ impl Storelike for Db {
 
     #[instrument(skip(self))]
     fn all_resources(&self, include_external: bool) -> ResourceCollection {
-        let mut resources: ResourceCollection = Vec::new();
-        let self_url = self
-            .get_self_url()
-            .expect("No self URL set, is required in DB");
-        for item in self.resources.into_iter() {
+        fn process_resource(item: Result<(sled::IVec, sled::IVec), sled::Error>) -> Resource {
             let (subject, resource_bin) = item.expect(DB_CORRUPT_MSG);
-            let subject: String = String::from_utf8_lossy(&subject).to_string();
-            if !include_external && !subject.starts_with(&self_url) {
-                continue;
-            }
+            let subject = String::from_utf8_lossy(&subject).to_string();
             let propvals: PropVals = bincode::deserialize(&resource_bin)
                 .unwrap_or_else(|e| panic!("{}. {}", corrupt_db_message(&subject), e));
             let resource = Resource::from_propvals(propvals, subject);
-            resources.push(resource);
+            resource
         }
+        let self_url = self
+            .get_self_url()
+            .expect("No self URL set, is required in DB");
+        let mut prefix: &[u8] = self_url.as_bytes();
+        if include_external {
+            prefix = "".as_bytes();
+        }
+        let njobs = std::thread::available_parallelism().unwrap().get();
+        let pool = ThreadPool::new(njobs);
+        let resource_iter = self.resources.scan_prefix(prefix);
+        let (send, recv) = channel::bounded(0);
+        for item in resource_iter {
+            let (send, item) = (send.clone(), item.clone());
+            pool.execute(move || {
+                send.send(process_resource(item));
+            });
+        }
+        drop(send);
+        let resources = recv.try_iter().collect::<Vec<Resource>>();
         resources
     }
 

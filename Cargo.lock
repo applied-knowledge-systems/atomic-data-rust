@@ -619,7 +619,6 @@ dependencies = [
  "iai",
  "lazy_static",
  "ntest",
- "num_cpus",
  "profile",
  "rand 0.8.5",
  "regex",
