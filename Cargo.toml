@@ -5,3 +5,8 @@ members = [
   "lib",
   "desktop",
 ]
+[profile.release]
+opt-level = 's'  # Optimize for size.
+lto = true # Link Time Optimization (LTO)
+codegen-units = 1 # Set this to 1 to allow for maximum size reduction optimizations:
+# panic = 'abort' #removes the need for this extra unwinding code.
