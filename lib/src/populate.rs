@@ -9,7 +9,7 @@ use crate::{
     parse::ParseOpts,
     schema::{Class, Property},
     storelike::Query,
-    urls, Resource, Storelike, Value,
+    urls, Storelike, Value,
 };
 
 /// Populates a store with some of the most fundamental Properties and Classes needed to bootstrap the whole.
@@ -251,7 +251,7 @@ pub fn populate_importer(store: &crate::Db) -> AtomicResult<()> {
     let base = store
         .get_self_url()
         .ok_or("No self URL in this Store - required for populating importer")?;
-    let mut importer = Resource::new(urls::construct_path_import(&base));
+    let mut importer = crate::Resource::new(urls::construct_path_import(&base));
     importer.set_class(urls::IMPORTER);
     importer.set_propval(urls::PARENT.into(), Value::AtomicUrl(base), store)?;
     importer.set_propval(urls::NAME.into(), Value::String("Import".into()), store)?;
