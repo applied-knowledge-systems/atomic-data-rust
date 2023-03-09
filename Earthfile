@@ -1,14 +1,14 @@
 VERSION 0.7
-PROJECT Applied Knowledge Systems/my-project
+PROJECT AlexMikhalev-1061/atomic-data-rust
 
 test-pipeline:
-    PIPELINE
+    PIPELINE --push
     TRIGGER push develop
     TRIGGER pr develop
-    BUILD +build
+    BUILD +docker
     
 build:
-    FROM rust:1.67
+    FROM rust:latest
     RUN rustup target add x86_64-unknown-linux-musl
     RUN apt update && apt install -y musl-tools musl-dev
     RUN update-ca-certificates
@@ -29,4 +29,4 @@ docker:
     EXPOSE 80
     VOLUME /atomic-storage
     ENTRYPOINT ["/atomic-server-bin"]
-    SAVE IMAGE --push aks/atomic-server
+    SAVE IMAGE --push ghcr.io/applied-knowledge-systems/atomic-server:edge
