@@ -1,5 +1,12 @@
 VERSION 0.7
+PROJECT Applied Knowledge Systems/my-project
 
+test-pipeline:
+    PIPELINE
+    TRIGGER push develop
+    TRIGGER pr develop
+    BUILD +build
+    
 build:
     FROM rust:1.67
     RUN rustup target add x86_64-unknown-linux-musl
