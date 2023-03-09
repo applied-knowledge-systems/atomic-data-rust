@@ -1,5 +1,5 @@
 VERSION 0.7
-PROJECT Applied Knowledge Systems/my-project
+PROJECT AlexMikhalev-1061/atomic-data-rust
 
 test-pipeline:
     PIPELINE
