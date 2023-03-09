@@ -8,7 +8,7 @@ test-pipeline:
     BUILD +build
     
 build:
-    FROM rust:1.67
+    FROM rust:latest
     RUN rustup target add x86_64-unknown-linux-musl
     RUN apt update && apt install -y musl-tools musl-dev
     RUN update-ca-certificates
