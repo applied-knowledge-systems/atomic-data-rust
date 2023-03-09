@@ -29,4 +29,4 @@ docker:
     EXPOSE 80
     VOLUME /atomic-storage
     ENTRYPOINT ["/atomic-server-bin"]
-    SAVE IMAGE --push ghcr.io/applied-knowledge-systems/atomic-server:edge
+    SAVE IMAGE --push ghcr.io/applied-knowledge-systems/atomic-server:latest
