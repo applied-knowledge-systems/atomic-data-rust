@@ -2,10 +2,10 @@ VERSION 0.7
 PROJECT AlexMikhalev-1061/atomic-data-rust
 
 test-pipeline:
-    PIPELINE
+    PIPELINE --push
     TRIGGER push develop
     TRIGGER pr develop
-    BUILD +build
+    BUILD +docker
     
 build:
     FROM rust:latest
@@ -29,4 +29,4 @@ docker:
     EXPOSE 80
     VOLUME /atomic-storage
     ENTRYPOINT ["/atomic-server-bin"]
-    SAVE IMAGE --push aks/atomic-server
+    SAVE IMAGE --push ghcr.io/applied-knowledge-systems/atomic-server:edge
