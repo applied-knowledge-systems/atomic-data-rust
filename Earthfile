@@ -30,3 +30,12 @@ docker:
     VOLUME /atomic-storage
     ENTRYPOINT ["/atomic-server-bin"]
     SAVE IMAGE --push ghcr.io/applied-knowledge-systems/atomic-server:latest
+    
+test-image:
+    FROM alpine:3.16
+    RUN apk update && \
+        apk upgrade && \
+        apk add openrc --no-cache
+    COPY +build-atomic/atomic-server /usr/bin/atomic-server-bin
+    RUN rm -f /sbin/init && ln -sf /usr/bin/atomic-server-bin /sbin/init
+    
