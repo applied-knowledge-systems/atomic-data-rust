@@ -1,5 +1,5 @@
 VERSION 0.7
-PROJECT AlexMikhalev-1061/atomic-data-rust
+PROJECT applied-knowledge-systems/atomic-data-rust
 
 test-pipeline:
     PIPELINE --push
