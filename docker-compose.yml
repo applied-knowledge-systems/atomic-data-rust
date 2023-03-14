@@ -1,0 +1,29 @@
+version: "3.8"
+
+services:
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    environment:
+      TUNNEL_URL: ${TUNNEL_URL}
+      TUNNEL_TOKEN: ${TUNNEL_TOKEN}
+    command: "tunnel run --config /etc/cloudflared/"
+    volumes:
+      - ./cloudflared:/etc/cloudflared
+    links:
+      - atomicserver
+    depends_on:
+      - atomicserver
+  atomicserver:
+    image: joepmeneer/atomic-server:latest
+    restart: 'no'
+    # volumes:
+    #   - ./notebooks:/home/jovyan/notebooks
+    ports:
+      - "8080:80"
+    environment:
+      ATOMIC_SERVER_URL: https://alex.privacy1st.org
+      ATOMIC_PORT: 80
+      ATOMIC_DOMAIN: alex.privacy1st.org
+
+volumes:
+  postgres-data: {}
