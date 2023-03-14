@@ -1,0 +1,10 @@
+[Unit]
+After=network.target
+
+[Service]
+EnvironmentFile=/etc/environment
+User=atomic
+ExecStart=/usr/bin/atomic-server
+
+[Install]
+WantedBy=default.target
