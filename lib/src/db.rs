@@ -68,7 +68,7 @@ pub struct Db {
     /// See [reference_index]
     reference_index: sled::Tree,
     /// Index sorted by property + value.
-    /// Used for TPF queries where the property is known.
+    /// Used for queries where the property is known.
     prop_val_sub_index: sled::Tree,
     /// Stores the members of Collections, easily sortable.
     query_index: sled::Tree,
@@ -539,7 +539,6 @@ impl Storelike for Db {
         let endpoints = self.endpoints.iter().filter(|e| e.handle_post.is_some());
         let subj_url = url::Url::try_from(subject)?;
         for e in endpoints {
-            println!("Checking endpoint: {}", e.path);
             if let Some(fun) = &e.handle_post {
                 if subj_url.path() == e.path {
                     let handle_post_context = crate::endpoints::HandlePostContext {
@@ -548,7 +547,9 @@ impl Storelike for Db {
                         for_agent,
                         subject: subj_url,
                     };
-                    return fun(handle_post_context);
+                    let mut resource = fun(handle_post_context)?;
+                    resource.set_subject(subject.into());
+                    return Ok(resource);
                 }
             }
         }
@@ -576,24 +577,7 @@ impl Storelike for Db {
     }
 
     fn populate(&self) -> AtomicResult<()> {
-        // populate_base_models should be run in init, instead of here, since it will result in infinite loops without
-        crate::populate::populate_default_store(self)
-            .map_err(|e| format!("Failed to populate default store. {}", e))?;
-        // This is a potentially expensive operation, but is needed to make TPF queries work with the models created in here
-        self.build_index(true)
-            .map_err(|e| format!("Failed to build index. {}", e))?;
-        crate::populate::create_drive(self)
-            .map_err(|e| format!("Failed to create drive. {}", e))?;
-        crate::populate::set_drive_rights(self, true)?;
-        crate::populate::populate_collections(self)
-            .map_err(|e| format!("Failed to populate collections. {}", e))?;
-        crate::populate::populate_endpoints(self)
-            .map_err(|e| format!("Failed to populate endpoints. {}", e))?;
-        crate::populate::populate_importer(self)
-            .map_err(|e| format!("Failed to populate importer. {}", e))?;
-        crate::populate::populate_sidebar_items(self)
-            .map_err(|e| format!("Failed to populate sidebar items. {}", e))?;
-        Ok(())
+        crate::populate::populate_all(self)
     }
 
     #[instrument(skip(self))]

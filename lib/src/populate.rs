@@ -136,7 +136,7 @@ pub fn populate_base_models(store: &impl Storelike) -> AtomicResult<()> {
             urls::PARENT.into(),
             Value::AtomicUrl("https://atomicdata.dev/properties".into()),
         );
-        store.add_resource_opts(&resource, false, false, true)?;
+        store.add_resource_opts(&resource, false, true, true)?;
     }
 
     for c in classes {
@@ -145,7 +145,7 @@ pub fn populate_base_models(store: &impl Storelike) -> AtomicResult<()> {
             urls::PARENT.into(),
             Value::AtomicUrl("https://atomicdata.dev/classes".into()),
         );
-        store.add_resource_opts(&resource, false, false, true)?;
+        store.add_resource_opts(&resource, false, true, true)?;
     }
 
     Ok(())
@@ -207,6 +207,12 @@ pub fn populate_default_store(store: &impl Storelike) -> AtomicResult<()> {
             &ParseOpts::default(),
         )
         .map_err(|e| format!("Failed to import chatroom.json: {e}"))?;
+    store
+        .import(
+            include_str!("../defaults/table.json",),
+            &ParseOpts::default(),
+        )
+        .map_err(|e| format!("Failed to import table.json: {e}"))?;
     Ok(())
 }
 
@@ -259,7 +265,6 @@ pub fn populate_importer(store: &crate::Db) -> AtomicResult<()> {
     Ok(())
 }
 
-#[cfg(feature = "db")]
 /// Adds items to the SideBar as subresources.
 /// Useful for helping a new user get started.
 pub fn populate_sidebar_items(store: &crate::Db) -> AtomicResult<()> {
@@ -270,7 +275,25 @@ pub fn populate_sidebar_items(store: &crate::Db) -> AtomicResult<()> {
         format!("{}/import", base),
         format!("{}/collections", base),
     ];
-    drive.set_propval(urls::SUBRESOURCES.into(), arr.into(), store)?;
+    for item in arr {
+        drive.push_propval(urls::SUBRESOURCES, item.into(), true)?;
+    }
     drive.save_locally(store)?;
+    Ok(())
+}
+
+/// Runs all populate commands. Optionally runs index (blocking), which can be slow!
+#[cfg(feature = "db")]
+pub fn populate_all(store: &crate::Db) -> AtomicResult<()> {
+    // populate_base_models should be run in init, instead of here, since it will result in infinite loops without
+    populate_default_store(store)
+        .map_err(|e| format!("Failed to populate default store. {}", e))?;
+    create_drive(store).map_err(|e| format!("Failed to create drive. {}", e))?;
+    set_drive_rights(store, true)?;
+    populate_collections(store).map_err(|e| format!("Failed to populate collections. {}", e))?;
+    populate_endpoints(store).map_err(|e| format!("Failed to populate endpoints. {}", e))?;
+    populate_importer(store).map_err(|e| format!("Failed to populate importer. {}", e))?;
+    populate_sidebar_items(store)
+        .map_err(|e| format!("Failed to populate sidebar items. {}", e))?;
     Ok(())
 }
