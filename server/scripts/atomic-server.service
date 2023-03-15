@@ -4,7 +4,7 @@ After=network.target
 [Service]
 EnvironmentFile=/etc/environment
 User=atomic
-ExecStart=/usr/bin/atomic-server
+ExecStart=/usr/bin/atomic-server-fc.sh
 
 [Install]
 WantedBy=default.target
