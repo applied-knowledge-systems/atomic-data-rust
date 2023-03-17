@@ -2,5 +2,6 @@
 
 source /usr/bin/cmdline.sh
 
-ATOMIC_DOMAIN=$(get_cmd hostname)
-/usr/bin/atomic-server --port 8080 --domain ${ATOMIC_DOMAIN} --data-dir /atomic/db --config-dir /atomic/config --log-level debug
+ATOMIC_SERVER=$(get_cmd atomic_server)
+ATOMIC_PORT=$(get_cmd atomic_port)
+/usr/bin/atomic-server --port ${ATOMIC_PORT} --server-url ${ATOMIC_SERVER} --log-level debug
